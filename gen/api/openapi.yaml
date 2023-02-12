@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  description: BudgetApp API
+  title: BudgetApp API
+  version: 1.0.0
+servers:
+  - url: https://BudgetApp
+paths:
+  /:
+    get:
+      operationId: helloWorld
+      responses:
+        "200":
+          content:
+            '*/*':
+              schema:
+                type: string
+          description: OK
+      summary: 'GET '
+      x-accepts: '*/*'
+components:
+  schemas: { }
+
