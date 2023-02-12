@@ -2,7 +2,11 @@ package com.example.budgetapp.services.Impl;
 
 import com.example.budgetapp.model.Transaction;
 import com.example.budgetapp.services.BudgetService;
-import org.apache.commons.lang3.StringUtils;
+import com.example.budgetapp.services.FilesService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -13,6 +17,7 @@ import java.util.TreeMap;
 
 @Service
 public class BudgetServiceImpl implements BudgetService {
+    private final FilesService filesService;
 
     public static final int SALARY = 30_000 - 9_750; //(Текущая З/П минус коммунальные)
     public static final int SAVING = 3_000;
@@ -26,8 +31,16 @@ public class BudgetServiceImpl implements BudgetService {
 
     // Коэфициент рабочих дней установленный законом:
     public static final double AVG_DAYS = 29.3;
-    private static Map<Month, Map<Long, Transaction>> transactions = new TreeMap<>();
+    private static TreeMap<Month, LinkedHashMap<Long, Transaction>> transactions = new TreeMap<>();
     private static long lastId = 0;
+
+    public BudgetServiceImpl(FilesService filesService) {
+        this.filesService = filesService;
+    }
+@PostConstruct
+    private void init() {
+    readToFile();
+    }
 
     @Override
     public int getDailyBudget() {
@@ -45,15 +58,17 @@ public class BudgetServiceImpl implements BudgetService {
     // Метод добавления транзакции:
     @Override
     public long addTransaction(Transaction transaction) {
-        Map<Long, Transaction> monthTransactions = transactions.getOrDefault(LocalDate.now().getMonth(), new LinkedHashMap<>());
+        LinkedHashMap<Long, Transaction> monthTransactions = transactions.getOrDefault(LocalDate.now().getMonth(), new LinkedHashMap<>());
         monthTransactions.put(lastId, transaction);
+        transactions.put(LocalDate.now().getMonth(), monthTransactions);
+        saveToFile();
         return lastId++;
     }
 
     // Метод получения транзакции:
     @Override
     public Transaction getTransaction(long id) {
-        for (Map<Long, Transaction> transactionsByMonth : transactions.values()) {
+        for (LinkedHashMap<Long, Transaction> transactionsByMonth : transactions.values()) {
             Transaction transaction = transactionsByMonth.get(id);
             if (transaction != null) {
                 return transaction;
@@ -64,9 +79,10 @@ public class BudgetServiceImpl implements BudgetService {
 
     @Override
     public Transaction editTransaction(long id, Transaction transaction) {
-        for (Map<Long, Transaction> transactionsByMonth : transactions.values()) {
+        for (LinkedHashMap<Long, Transaction> transactionsByMonth : transactions.values()) {
             if (transactionsByMonth.containsKey(id)) {
                 transactionsByMonth.put(id, transaction);
+                saveToFile();
                 return transaction;
             }
         }
@@ -75,7 +91,7 @@ public class BudgetServiceImpl implements BudgetService {
 
     @Override
     public boolean deleteTransaction(long id) {
-        for (Map<Long, Transaction> transactionsByMonth : transactions.values()) {
+        for (LinkedHashMap<Long, Transaction> transactionsByMonth : transactions.values()) {
             if (transactionsByMonth.containsKey(id)) {
                 transactionsByMonth.remove(id);
                 return true;
@@ -98,7 +114,7 @@ public class BudgetServiceImpl implements BudgetService {
     // Метод подсчета уже потраченных средств:
     @Override
     public int getAllSpend() {
-        Map<Long, Transaction> monthTransactions = transactions.getOrDefault(LocalDate.now().getMonth(), new LinkedHashMap<>());
+        LinkedHashMap<Long, Transaction> monthTransactions = transactions.getOrDefault(LocalDate.now().getMonth(), new LinkedHashMap<>());
         int sum = 0;
         for (Transaction transaction : monthTransactions.values()) {
             sum += transaction.getSum();
@@ -123,4 +139,24 @@ public class BudgetServiceImpl implements BudgetService {
         int salary = SALARY / workingDaysInMonth * (workingDaysInMonth - vacationWorkingDaysCount);
         return salary + getVacationBonus(vacationDaysCount);
     }
+
+    private void saveToFile() {
+        try {
+            String json = new ObjectMapper().writeValueAsString(transactions);
+            filesService.saveToFile(json);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void readToFile() {
+        try {
+            String json = filesService.readToFile();
+           transactions = new ObjectMapper().readValue(json, new TypeReference<TreeMap<Month, LinkedHashMap<Long, Transaction>>>() {
+            });
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 }
